@@ -18,9 +18,7 @@ az login
 tar xzf bge-small-en.tgz
 python -m venv .venv
 source .venv/bin/activate
-pip install azure.identity openai chromadb psycopg2-binary pymupdf llama-index \
-  llama-index-core streamlit llama-index-vector-stores-chroma llama-index-tools-database
-pip install sentence-transformers
+pip install -r requirements.txt
 cp .env.example .env
 (edit .env)
 ```

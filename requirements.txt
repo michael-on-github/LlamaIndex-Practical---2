@@ -1,0 +1,11 @@
+azure.identity
+chromadb
+llama-index
+llama-index-core
+llama-index-tools-database
+llama-index-vector-stores-chroma
+openai
+psycopg2-binary
+pymupdf
+sentence-transformers
+streamlit
