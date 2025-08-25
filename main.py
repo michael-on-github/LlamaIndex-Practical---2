@@ -3,9 +3,10 @@ import os
 import re
 from collections import defaultdict
 
-import chromadb
 import streamlit as st
 from dotenv import load_dotenv
+
+import chromadb
 
 load_dotenv()
 
@@ -13,6 +14,7 @@ from typing import List
 
 from llama_index.core import (Settings, StorageContext, VectorStoreIndex,
                               get_response_synthesizer)
+from llama_index.core.llms import ChatMessage
 from llama_index.core.node_parser import SemanticSplitterNodeParser
 from llama_index.core.postprocessor import SimilarityPostprocessor
 from llama_index.core.query_engine import RetrieverQueryEngine
@@ -22,6 +24,7 @@ from llama_index.core.tools import FunctionTool
 from llama_index.readers.file import PyMuPDFReader
 from llama_index.vector_stores.chroma import ChromaVectorStore
 
+from schemas import Candidate, CandidateSummary
 from utils import DATA_DIR, STORAGE_DIR, embed_model, llm
 
 GROUPED_CHUNKS_PATH = f"{STORAGE_DIR}/grouped_chunks.json"
@@ -142,41 +145,17 @@ def ensure_candidates_roster():
             )
             full_text = " ".join(chunks)
             prompt = f"""
-                From the following resume text, extract the following fields:
-                - Full job title
-                - Profession or field
-                - Years of commercial experience
-
-                Do NOT include summary. do NOT include metadata.
-
-                Strip any ```json and/or ```, leaving pure JSON.
-
-                Output _only_ _valid_ JSON with the following keys:
-                ["job_title", "profession_or_field", "years_of_commercial_experience"].
+                Extract the relevant information from the resume below.
 
                 Resume:
                 {full_text}
             """
-            response = llm.complete(prompt)
-            print("\n---\n" + response.text.strip())
-            try:
-                candidates_roster[file_path] = json.loads(response.text.strip())
-            except json.JSONDecodeError:
-                print(f"Failed to parse JSON from {file_path}")
-                prompt = f"""
-                    Extract JSON from the following text.
-                    Return a valid JSON without narrative scaffolding.
+            input_msg = ChatMessage.from_str(prompt)
+            sllm = llm.as_structured_llm(output_cls=Candidate)
+            output = sllm.chat([input_msg])
+            output_json = output.raw.model_dump_json()
+            candidates_roster[file_path] = json.loads(output_json)
 
-                    Text:
-                    {response.text}
-                """
-                response_corrected = llm.complete(prompt)
-                response_corrected = response_corrected.text.strip()
-                print(f"\n-- corrected output 1:\n{response_corrected}")
-                response_corrected = re.sub(r"^```json", "", response_corrected)
-                response_corrected = re.sub(r"```$", "", response_corrected)
-                print(f"\n-- corrected output 2:\n{response_corrected}")
-                candidates_roster[file_path] = json.loads(response_corrected)
             progress_text.text(
                 f"Job title, profession, etc for {i + 1} of {candidates_length} candidates extracted."
                 + (" Extracting more..." if (i + 1) < candidates_length else "")
@@ -193,12 +172,10 @@ def load_candidates():
     if os.path.exists(STORAGE_DIR):
         progress_text.text("Loading existing candidates...")
         grouped_chunks = ensure_grouped_chunks()
-        candidates_roster = ensure_candidates_roster()
         progress_text.text("Candidates loaded")
     else:
         progress_text.text("Creating a new set of candidates' information...")
         grouped_chunks = ensure_grouped_chunks()
-        candidates_roster = ensure_candidates_roster()
         progress_text.text("Candidates created")
 
     candidates_length = len(grouped_chunks.keys())
@@ -207,17 +184,24 @@ def load_candidates():
     for i, (file_path, chunks) in enumerate(grouped_chunks.items()):
         full_text = " ".join(chunks)
         prompt = f"""
-            Generate a summary of the candidate's strongest skills and professional highlights.
-            At most 3 sentences.
-            Input:
-            {full_text}
+        From the candidate's resume below, generate a concise summary of their strongest skills and professional highlights.
+
+        Respond with:
+        - "summary": A brief overview in no more than 3 sentences.
+        - "details": A more specific breakdown of notable achievements, technologies used, and roles held.
+
+        Resume:
+        {full_text}
         """
-        response = llm.complete(prompt)
+        input_msg = ChatMessage.from_str(prompt)
+        sllm = llm.as_structured_llm(output_cls=CandidateSummary)
+        output = sllm.chat([input_msg])
+        output_obj = output.raw
         candidates.append(
             {
                 "name": file_path,
-                "summary": re.sub(r"^\s*Summary:\s*", "", response.text),
-                "details": full_text,
+                "summary": output_obj.summary,
+                "details": output_obj.details,
             }
         )
         progress_text.text(
