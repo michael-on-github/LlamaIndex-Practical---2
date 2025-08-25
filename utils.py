@@ -164,11 +164,10 @@ embed_model = AzureOpenAIEmbedding(client=azure_client, model=embedding_model_na
 embed_function = AzureEmbeddingFunction(azure_client, embedding_model_name)
 
 
-
-
+from typing import List
 
 from sentence_transformers import SentenceTransformer
-from typing import List
+
 
 class LlamaIndexEmbeddingWrapper(BaseEmbedding):
     _model: SentenceTransformer = PrivateAttr()
@@ -185,5 +184,6 @@ class LlamaIndexEmbeddingWrapper(BaseEmbedding):
 
     def _get_text_embedding(self, text: str) -> List[float]:
         return self._model.encode(text, convert_to_numpy=True).tolist()
+
 
 embed_model = LlamaIndexEmbeddingWrapper()

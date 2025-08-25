@@ -3,10 +3,9 @@ import os
 import re
 from collections import defaultdict
 
+import chromadb
 import streamlit as st
 from dotenv import load_dotenv
-
-import chromadb
 
 load_dotenv()
 
@@ -17,6 +16,7 @@ from llama_index.core import (Settings, StorageContext, VectorStoreIndex,
 from llama_index.core.llms import ChatMessage
 from llama_index.core.node_parser import SemanticSplitterNodeParser
 from llama_index.core.postprocessor import SimilarityPostprocessor
+from llama_index.core.prompts import ChatPromptTemplate
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core.retrievers import VectorIndexRetriever
 from llama_index.core.schema import BaseNode
@@ -24,7 +24,7 @@ from llama_index.core.tools import FunctionTool
 from llama_index.readers.file import PyMuPDFReader
 from llama_index.vector_stores.chroma import ChromaVectorStore
 
-from schemas import Candidate, CandidateSummary
+from schemas import CandidateRoster, CandidateSummary
 from utils import DATA_DIR, STORAGE_DIR, embed_model, llm
 
 GROUPED_CHUNKS_PATH = f"{STORAGE_DIR}/grouped_chunks.json"
@@ -144,16 +144,23 @@ def ensure_candidates_roster():
                 f"Extracting job title, profession, etc for {candidates_length} candidates..."
             )
             full_text = " ".join(chunks)
-            prompt = f"""
-                Extract the relevant information from the resume below.
+            chat_prompt_tmpl = ChatPromptTemplate(
+                message_templates=[
+                    ChatMessage.from_str(
+                        """
+                        Extract the relevant information from the resume below.
 
-                Resume:
-                {full_text}
-            """
-            input_msg = ChatMessage.from_str(prompt)
-            sllm = llm.as_structured_llm(output_cls=Candidate)
-            output = sllm.chat([input_msg])
-            output_json = output.raw.model_dump_json()
+                        Resume:
+                        {full_text}
+                        """,
+                        role="user",
+                    )
+                ]
+            )
+            output = llm.structured_predict(
+                CandidateRoster, chat_prompt_tmpl, full_text=full_text
+            )
+            output_json = output.model_dump_json()
             candidates_roster[file_path] = json.loads(output_json)
 
             progress_text.text(
@@ -183,25 +190,30 @@ def load_candidates():
 
     for i, (file_path, chunks) in enumerate(grouped_chunks.items()):
         full_text = " ".join(chunks)
-        prompt = f"""
-        From the candidate's resume below, generate a concise summary of their strongest skills and professional highlights.
+        chat_prompt_tmpl = ChatPromptTemplate(
+            message_templates=[
+                ChatMessage.from_str(
+                    """
+                    From the candidate's resume below, generate a concise summary of their strongest skills and professional highlights.
 
-        Respond with:
-        - "summary": A brief overview in no more than 3 sentences.
-        - "details": A more specific breakdown of notable achievements, technologies used, and roles held.
+                    Respond with:
+                    - "summary": A brief overview in no more than 3 sentences.
+                    - "details": A more specific breakdown of notable achievements, technologies used, and roles held.
 
-        Resume:
-        {full_text}
-        """
-        input_msg = ChatMessage.from_str(prompt)
-        sllm = llm.as_structured_llm(output_cls=CandidateSummary)
-        output = sllm.chat([input_msg])
-        output_obj = output.raw
+                    Resume:
+                    {full_text}
+                    """
+                )
+            ]
+        )
+        output = llm.structured_predict(
+            CandidateSummary, chat_prompt_tmpl, full_text=full_text
+        )
         candidates.append(
             {
                 "name": file_path,
-                "summary": output_obj.summary,
-                "details": output_obj.details,
+                "summary": output.summary,
+                "details": output.details,
             }
         )
         progress_text.text(

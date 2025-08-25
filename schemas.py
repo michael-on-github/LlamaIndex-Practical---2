@@ -3,7 +3,7 @@ from typing import List
 from pydantic import BaseModel, Field
 
 
-class Candidate(BaseModel):
+class CandidateRoster(BaseModel):
     """Data model for a candidate."""
 
     job_title: str
